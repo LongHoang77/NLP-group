@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 import requests
-from intent_recognition import load_intents, predict, get_response_for_intent, load_trained_model
 from sentiment_analysis import analyze_sentiment
 from dotenv import load_dotenv
 import os
@@ -16,15 +16,14 @@ logging.basicConfig(level=logging.INFO)
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 API_GATEWAY_URL = os.getenv("API_GATEWAY_URL")  # Store your API Gateway URL in the .env file
 
-# Load intents and train model
-custom_intents = load_intents("intents.json")
-model, tokenizer = load_trained_model("bert_intent_classifier.pth")
-
 # Discord Bot Configuration
 intents = discord.Intents.default()
-intents.message_content = True  # Enable message content intent
+intents.message_content = True  
 bot = commands.Bot(command_prefix="/", intents=intents)
+synced = False  # Prevent multiple syncs
 
+# Store chat history per user
+conversation_history = {}
 
 # Function to call AWS Lambda for saving data to DynamoDB
 def save_to_dynamodb(user_id, message, response):
@@ -48,87 +47,70 @@ def save_to_dynamodb(user_id, message, response):
 
 @bot.event
 async def on_ready():
+    global synced
+    if not synced:
+        await bot.tree.sync()
+        synced = True
     print(f"Bot is online as {bot.user.name}")
 
-
-@bot.command(name="hello")
-async def hello(ctx):
-    await ctx.send("Hello, I'm a bot!")
-
-# @bot.command(name="ask")
-# async def ask(ctx, *, message):
-#     try:
-#         # First, classify the user's message based on predefined intents
-#         predicted_label, confidence = predict(model, tokenizer, message)
-#         label_to_intent = {idx: intent["intent"] for idx, intent in enumerate(custom_intents["intents"])}
-#         predicted_intent = label_to_intent[predicted_label]
-        
-#         # Try to get a response from the predefined intents
-#         # response = get_response_for_intent(custom_intents, predicted_intent)
-        
-#          # Only use intent response if confidence is above 0.6
-#         if confidence > 0.3:
-#             response = get_response_for_intent(custom_intents, predicted_intent)
-#         else:
-#             response = None
-            
-#         if response is None:
-#             # If no predefined response exists, fall back to Ollama
-#             ollama_response = ollama.chat(
-#                 model='llama2',
-#                 messages=[
-#                     {'role': 'system', 'content': 'You are a helpful bot assistant who provides concise answers.'},
-#                     {'role': 'user', 'content': message}
-#                 ]
-#             )
-#             response = ollama_response.get('message', {}).get('content', 'I could not generate a response.')
-            
-#             # Log that the response is from Ollama
-#             logging.info(f"Ollama response: {response}")
-#         else:
-#             # Log that the response is from intent recognition
-#             logging.info(f"Intent recognition response: {response}")    
-
-#         # Send the response to the user
-#         await ctx.send(response)
-
-#         # Save the conversation to DynamoDB via AWS Lambda
-#         if save_to_dynamodb(user_id=ctx.author.id, message=message, response=response):
-#             print("Conversation saved successfully.")
-#         else:
-#             print("Failed to save conversation.")
-
-#     except Exception as e:
-#         print(f"Error in ask command: {e}")
-#         await ctx.send("An error occurred while processing your request.")
-@bot.command(name="ask")
-async def ask(ctx, *, message):
+    
+# Define the slash command
+@bot.tree.command(name="hello", description="Say hello to the bot!")
+async def hello(interaction: discord.Interaction):
+    await interaction.response.send_message("Hello, I'm a bot!")
+    
+    
+@bot.tree.command(name="ask", description="Ask the bot anything")
+async def ask(interaction: discord.Interaction, message: str):
     try:
-        # First, classify the user's message based on predefined intents
-        predicted_label, confidence = predict(model, tokenizer, message)
-        label_to_intent = {idx: intent["intent"] for idx, intent in enumerate(custom_intents["intents"])}
-        predicted_intent = label_to_intent[predicted_label]
+        # Prevent timeout for the command from expiring
+        await interaction.response.defer(thinking=True)
         
-        print(f"Confidence: {confidence}, Predicted Intent: {predicted_intent}")
+        user_id = str(interaction.user.id)
 
-        # Use intent-based responses exclusively
-        if confidence < 0.3:
-            response = "I'm not confident in understanding your request. Could you clarify?"
-        else:
-            response = get_response_for_intent(custom_intents, predicted_intent)
+        # Retrieve previous messages or start new conversation
+        if user_id not in conversation_history:
+            conversation_history[user_id] = []
 
-        # Send the response to the user
-        await ctx.send(response)
+        sentiment = analyze_sentiment(message)
+        
+        print(f"Sentiment of message '{message}': {sentiment}")
+        
+        # Add user's message to history
+        conversation_history[user_id].append({'role': 'user', 'content': message})
+
+        # Keep only the last 10 messages for better memory allocation
+        conversation_history[user_id] = conversation_history[user_id][-10:]
+
+        async with interaction.channel.typing():
+            ollama_response = ollama.chat(
+                model='llama2',
+                messages=[
+                    {'role': 'system', 'content': 'You are an AI assistant that provides informative and engaging answers while maintaining a friendly tone.'}
+                ] + conversation_history[user_id]
+            )
+            response = ollama_response.get('message', {}).get('content', 'I could not generate a response.')
+
+        # Adjust response based on sentiment
+        if sentiment == "negative":
+            response += "\n\nI'm here to help! Let me know if I can assist you in any way."
+            
+        # Split the response into chunks of 2000 characters to not overcome the limit of Discord
+        for chunk in [response[i:i+2000] for i in range(0, len(response), 2000)]:
+            await interaction.followup.send(chunk, ephemeral=True)
+
+        # Store bot's response in history
+        conversation_history[user_id].append({'role': 'assistant', 'content': response})
 
         # Save the conversation to DynamoDB via AWS Lambda
-        if save_to_dynamodb(user_id=ctx.author.id, message=message, response=response):
+        if save_to_dynamodb(user_id=user_id, message=message, response=response):
             print("Conversation saved successfully.")
         else:
             print("Failed to save conversation.")
 
     except Exception as e:
         print(f"Error in ask command: {e}")
-        await ctx.send("An error occurred while processing your request.")
+        await interaction.response.send_message("⚠️ An error occurred while processing your request.")
 
 
 # Run the bot
