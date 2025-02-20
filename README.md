@@ -2,17 +2,41 @@
 
 ## Overview
 
-This project is a **Discord Bot** that uses Natural Language Processing (NLP) techniques to interact with users, recognize intents, perform sentiment analysis, and respond intelligently. The bot integrates multiple components including a custom-trained intent recognition model, an AWS Lambda function for saving data to DynamoDB, and Ollama for AI-based conversational responses.
+This project is a **Discord chatbot** that uses **Ollama's Llama2** model to generate responses based on user input. It supports **multilingual translation**, **sentiment analysis**, and **conversation history storage** via **AWS DynamoDB**.
+
+The chatbot is designed to:
+
+- Provide AI-generated responses to user queries.
+- Detect and translate messages into English before processing.
+- Analyze sentiment in user messages and adjust responses accordingly.
+- Maintain recent chat history per user for contextual responses.
+- Store conversation logs in **AWS DynamoDB** through an API Gateway.
 
 ---
 
 ## Features
 
-- **Custom Intent Recognition:** Classify user intents using a trained model.
-- **Sentiment Analysis:** Analyze the sentiment of user messages.
-- **Ollama Integration:** Leverage advanced language models for natural conversation.
-- **AWS Lambda Integration:** Store user interactions securely in DynamoDB.
-- **Dynamic Responses:** Provide concise and intelligent answers to user queries.
+### AI-Powered Responses
+
+- Uses **Ollama’s Llama2** model to generate meaningful responses.
+
+### Multi-Language Support
+
+- Detects message language and translates it to English for processing.
+- Responses are translated back to the original language before sending.
+
+### Sentiment Analysis
+
+- Analyzes whether a message is **positive, neutral, or negative**.
+- Adjusts responses to be more supportive if sentiment is negative.
+
+### Chat History
+
+- Stores the last **10 messages** per user to provide contextual responses.
+
+### AWS DynamoDB Storage
+
+- Saves conversations to **AWS DynamoDB** via **API Gateway**.
 
 ---
 
@@ -25,14 +49,10 @@ This project is a **Discord Bot** that uses Natural Language Processing (NLP) te
 - `requests` for API communication
 - `dotenv` for environment variable management
 - `ollama` for interfacing with the language model
-- Custom Python scripts:
-  - `intent_recognition.py`: For intent classification
+- `googletrans` for google translate
+- `nltk` for natural laanguage toolkit
+- Custom Python scripts: 
   - `sentiment_analysis.py`: For sentiment analysis
-
-### Data and Models
-
-- `intents.json`: File containing training data for custom intents.
-- A pre-trained model for intent recognition, trained using the script provided in the repository.
 
 ### Cloud Services
 
@@ -66,17 +86,7 @@ DISCORD_BOT_TOKEN=your_discord_bot_token
 API_GATEWAY_URL=your_api_gateway_url
 ```
 
-### 4. Train Intent Classifier
-
-Train the intent classification model using the provided script:
-
-```bash
-python intent_recognition.py
-```
-
-This will create a trained model and vectorizer stored locally.
-
-### 5. Run the Bot
+### 4. Run the Bot
 
 Start the bot by running:
 
@@ -91,11 +101,44 @@ python bot.py
 ### Commands
 
 - **`/hello`:** Responds with a simple greeting message.
-- **`/ask <message>`:** Sends a query to the Ollama model and returns the response.
+- **`/ask <message>`:** The bot generates a response based on the message. 
 
-### Customization
+#### Example Usage
 
-You can modify the bot's behavior by editing the intent data in `intents.json` and retraining the model.
+```bash
+/ask How does machine learning work?
+```
+
+---
+
+## How It Works
+
+### Message Processing Steps
+1. **Detect Language**  
+   - The bot detects the language of the input message.
+
+2. **Translate to English**  
+   - If the message is not in English, it is translated before processing.
+
+3. **Preprocess the Message**  
+   - Text is converted to lowercase.
+   - Tokenization is applied using `nltk`.
+   - Stop words and punctuation are removed.
+
+4. **Analyze Sentiment**  
+   - The sentiment of the message is classified as **positive, neutral, or negative**.
+
+5. **Generate a Response**  
+   - The bot sends the processed message to **Ollama’s Llama2** model for response generation.
+
+6. **Translate Back**  
+   - If the original message was in a different language, the response is translated back.
+
+7. **Send Response**  
+   - The bot replies to the user in their original language.
+
+8. **Store Conversation in DynamoDB**  
+   - The user’s message and the bot’s response are logged in AWS DynamoDB via API Gateway.
 
 ---
 
@@ -125,11 +168,7 @@ You can modify the bot's behavior by editing the intent data in `intents.json` a
 - [Discord.py Documentation](https://discordpy.readthedocs.io/)
 - [Ollama API Documentation](https://ollama.ai/docs)
 - [AWS Lambda Documentation](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html)
+- [AWS DynamoDB](https://docs.aws.amazon.com/dynamodb/)
 
 ---
 
-## Future Enhancements
-
-- Add multilingual support.
-- Implement dynamic intent learning from user feedback.
-- Expand functionality with additional NLP models or APIs.
