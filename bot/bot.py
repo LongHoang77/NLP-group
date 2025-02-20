@@ -30,7 +30,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-API_GATEWAY_URL = os.getenv("API_GATEWAY_URL")  # Store your API Gateway URL in the .env file
+API_GATEWAY_URL = os.getenv("API_GATEWAY_URL")  
 
 # Discord Bot Configuration
 intents = discord.Intents.default()
@@ -53,29 +53,10 @@ def preprocess_text(text: str) -> str:
     return " ".join(tokens)
 
 # Function to save chat data to DynamoDB via AWS Lambda
-# def save_to_dynamodb(user_id, message, response):
-#     payload = {
-#         "user_id": str(user_id),
-#         "message": message,
-#         "response": response
-#     }
-#     try:
-#         response = requests.post(API_GATEWAY_URL, json=payload)
-#         if response.status_code == 200:
-#             print("Data saved to DynamoDB successfully.")
-#             return True
-#         else:
-#             print(f"Failed to save data. Status code: {response.status_code}, Response: {response.text}")
-#             return False
-#     except requests.RequestException as e:
-#         print(f"Error connecting to API Gateway: {e}")
-#         return False
-    
-
 async def save_to_dynamodb(user_id, message, response):
     payload = {"user_id": str(user_id), "message": message, "response": response}
     try:
-        requests.post(API_GATEWAY_URL, json=payload)  # ✅ No blocking `await`
+        requests.post(API_GATEWAY_URL, json=payload)  
     except requests.RequestException as e:
         print(f"Error saving to DynamoDB: {e}")
 @bot.event
@@ -137,7 +118,7 @@ async def ask(interaction: discord.Interaction, message: str):
         if sentiment == "negative":
             response_in_english += "\n\nI'm here to help! Let me know if I can assist you in any way."
 
-        # Translate response back to original language (Fix: Await the coroutine)
+        # Translate 
         response_translated = (await translator.translate(response_in_english, src="en", dest=detected_lang)).text
 
         response_time = time.time() - start_time  # End timer
@@ -147,7 +128,6 @@ async def ask(interaction: discord.Interaction, message: str):
             await interaction.followup.send(chunk, ephemeral=True)
         print(f"⏱ **Response Time:** {response_time:.2f} seconds")
         
-        # await interaction.followup.send(f"⏱ **Response Time:** {response_time:.2f} seconds", ephemeral=True)
         # Store bot's response in history
         conversation_history[user_id].append({'role': 'assistant', 'content': response_in_english})
         
