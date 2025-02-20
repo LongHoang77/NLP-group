@@ -1,12 +1,10 @@
 import boto3
 import json
 
-# Initialize DynamoDB
-dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+dynamodb = boto3.resource("dynamodb", region_name="ap-southeast-2")
 table = dynamodb.Table("chat_history")
 
-# Lambda handler
-def handler(event, context):
+def lambda_handler(event, context):
     user_id = event["user_id"]
     message = event["message"]
     response = event["response"]
