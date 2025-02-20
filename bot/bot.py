@@ -1,3 +1,4 @@
+import asyncio
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -12,7 +13,7 @@ from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 import string
 from googletrans import Translator
-
+import time
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
@@ -39,6 +40,7 @@ synced = False  # Prevent multiple syncs
 
 # Store chat history per user
 conversation_history = {}
+# Translate using googletrans
 translator = Translator()
 
 # Function to preprocess text using NLTK
@@ -51,24 +53,31 @@ def preprocess_text(text: str) -> str:
     return " ".join(tokens)
 
 # Function to save chat data to DynamoDB via AWS Lambda
-def save_to_dynamodb(user_id, message, response):
-    payload = {
-        "user_id": str(user_id),
-        "message": message,
-        "response": response
-    }
-    try:
-        response = requests.post(API_GATEWAY_URL, json=payload)
-        if response.status_code == 200:
-            print("Data saved to DynamoDB successfully.")
-            return True
-        else:
-            print(f"Failed to save data. Status code: {response.status_code}, Response: {response.text}")
-            return False
-    except requests.RequestException as e:
-        print(f"Error connecting to API Gateway: {e}")
-        return False
+# def save_to_dynamodb(user_id, message, response):
+#     payload = {
+#         "user_id": str(user_id),
+#         "message": message,
+#         "response": response
+#     }
+#     try:
+#         response = requests.post(API_GATEWAY_URL, json=payload)
+#         if response.status_code == 200:
+#             print("Data saved to DynamoDB successfully.")
+#             return True
+#         else:
+#             print(f"Failed to save data. Status code: {response.status_code}, Response: {response.text}")
+#             return False
+#     except requests.RequestException as e:
+#         print(f"Error connecting to API Gateway: {e}")
+#         return False
+    
 
+async def save_to_dynamodb(user_id, message, response):
+    payload = {"user_id": str(user_id), "message": message, "response": response}
+    try:
+        requests.post(API_GATEWAY_URL, json=payload)  # ✅ No blocking `await`
+    except requests.RequestException as e:
+        print(f"Error saving to DynamoDB: {e}")
 @bot.event
 async def on_ready():
     global synced
@@ -84,17 +93,25 @@ async def hello(interaction: discord.Interaction):
 @bot.tree.command(name="ask", description="Ask the bot anything")
 async def ask(interaction: discord.Interaction, message: str):
     try:
+        
         await interaction.response.defer(thinking=True)
         user_id = str(interaction.user.id)
 
         if user_id not in conversation_history:
             conversation_history[user_id] = []
 
-        # Detect input language (Fix: Await the coroutine)
-        detected_lang = (await translator.detect(message)).lang
+        start_time = time.time()
+
+        # Detect input language 
+        detected_lang = (await translator.detect(message)).lang or "en"
 
         # Translate message to English for processing
-        message_in_english = (await translator.translate(message, src=detected_lang, dest="en")).text
+        if detected_lang != "en":
+        # Translate the message to English only if it's not already in English
+            message_in_english = (await translator.translate(message, src=detected_lang, dest="en")).text
+        else:
+        # If the message is already in English, use it directly
+            message_in_english = message
 
         # Preprocess the message
         preprocessed_message = preprocess_text(message_in_english)
@@ -105,7 +122,7 @@ async def ask(interaction: discord.Interaction, message: str):
         print(f"Sentiment of message '{message}': {sentiment}")
 
         conversation_history[user_id].append({'role': 'user', 'content': message_in_english})
-        conversation_history[user_id] = conversation_history[user_id][-10:]  # Keep last 10 messages
+        conversation_history[user_id] = conversation_history[user_id][-3:]  # Keep last 10 messages
 
         async with interaction.channel.typing():
             ollama_response = ollama.chat(
@@ -123,18 +140,25 @@ async def ask(interaction: discord.Interaction, message: str):
         # Translate response back to original language (Fix: Await the coroutine)
         response_translated = (await translator.translate(response_in_english, src="en", dest=detected_lang)).text
 
+        response_time = time.time() - start_time  # End timer
+        
         # Send response in chunks
         for chunk in [response_translated[i:i+2000] for i in range(0, len(response_translated), 2000)]:
             await interaction.followup.send(chunk, ephemeral=True)
-
+        print(f"⏱ **Response Time:** {response_time:.2f} seconds")
+        
+        # await interaction.followup.send(f"⏱ **Response Time:** {response_time:.2f} seconds", ephemeral=True)
         # Store bot's response in history
         conversation_history[user_id].append({'role': 'assistant', 'content': response_in_english})
-
+        
         # Save conversation to DynamoDB
-        if save_to_dynamodb(user_id=user_id, message=message, response=response_translated):
-            print("Conversation saved successfully.")
-        else:
-            print("Failed to save conversation.")
+        # if save_to_dynamodb(user_id=user_id, message=message, response=response_translated):
+        #     print("Conversation saved successfully.")
+        # else:
+        #     print("Failed to save conversation.")
+
+        # ✅ Save to DynamoDB in background
+        asyncio.create_task(save_to_dynamodb(user_id=user_id, message=message, response=response_translated))
 
     except Exception as e:
         print(f"Error in ask command: {e}")
