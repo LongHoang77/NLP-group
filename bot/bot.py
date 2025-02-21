@@ -122,15 +122,17 @@ async def ask(interaction: discord.Interaction, message: str):
         response_translated = (await translator.translate(response_in_english, src="en", dest=detected_lang)).text
 
         response_time = time.time() - start_time  # End timer
-        
+
         # Send response in chunks
-        for chunk in [response_translated[i:i+2000] for i in range(0, len(response_translated), 2000)]:
+        for chunk in [response_translated[i:i+2000] for i in range(0, len(response_translated), 1500)]:
             await interaction.followup.send(chunk, ephemeral=True)
+            await interaction.followup.send(f"⏱ **Response Time:** {response_time:.2f} seconds")
+        # Send response time separately
+        # interaction.followup.send(f"⏱ **Response Time:** {response_time:.2f} seconds", ephemeral=True)
         print(f"⏱ **Response Time:** {response_time:.2f} seconds")
-        
         # Store bot's response in history
         conversation_history[user_id].append({'role': 'assistant', 'content': response_in_english})
-        
+    
         # Save conversation to DynamoDB
         # if save_to_dynamodb(user_id=user_id, message=message, response=response_translated):
         #     print("Conversation saved successfully.")
