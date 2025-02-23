@@ -32,7 +32,7 @@ The chatbot is designed to:
 
 ### Chat History
 
-- Stores the last **10 messages** per user to provide contextual responses.
+- Stores the last **3 messages** per user to provide contextual responses.
 
 ### AWS DynamoDB Storage
 
